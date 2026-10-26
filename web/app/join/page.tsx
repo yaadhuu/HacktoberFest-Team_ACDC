@@ -1,20 +1,37 @@
 "use client";
-import { useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import RequireAuth from "@/components/RequireAuth";
-import { api, type Img } from "@/lib/supabase";
+import { api, apiUrl, type Img } from "@/lib/supabase";
 
 type Phase = "idle" | "preview" | "uploading" | "done";
 
 export default function JoinPage() {
   return (
+    <Suspense>
+      <JoinGate />
+    </Suspense>
+  );
+}
+
+/** ?g=<invite> -> guest upload into a friend's shared galaxy (no account). Otherwise: your own galaxy. */
+function JoinGate() {
+  const invite = useSearchParams().get("g");
+  if (invite) return <Join invite={invite} />;
+  return (
     <RequireAuth>
-      <Join />
+      <Join invite={null} />
     </RequireAuth>
   );
 }
 
-function Join() {
+function Join({ invite }: { invite: string | null }) {
+  const [inviteOk, setInviteOk] = useState<boolean | null>(invite ? null : true);
+  useEffect(() => {
+    if (!invite) return;
+    fetch(`${apiUrl()}/join/${encodeURIComponent(invite)}`).then((r) => setInviteOk(r.ok)).catch(() => setInviteOk(false));
+  }, [invite]);
   const [name, setName] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -43,7 +60,15 @@ function Join() {
     try {
       const fd = new FormData();
       fd.append("file", file!);
-      const r = await api<{ image: Img }>("/images", { method: "POST", body: fd });
+      let r: { image: Img };
+      if (invite) {
+        fd.append("name", name);
+        const res = await fetch(`${apiUrl()}/join/${encodeURIComponent(invite)}/images`, { method: "POST", body: fd });
+        if (!res.ok) throw new Error(`${res.status} ${(await res.text()).slice(0, 160)}`);
+        r = await res.json();
+      } else {
+        r = await api<{ image: Img }>("/images", { method: "POST", body: fd });
+      }
       setCluster(r.image.primary_category ?? "");
       setPhase("done");
     } catch (e: any) {
@@ -65,7 +90,14 @@ function Join() {
           Snap anything around you. Bliss places it next to visually similar images in seconds.
         </p>
 
-        <div className="mt-8 surface rounded-3xl p-5">
+        {invite && inviteOk === false && (
+          <div className="mt-6 text-center text-sm text-ink-dim">This invite link is not valid. Ask your friend for a new QR.</div>
+        )}
+        {invite && inviteOk && (
+          <div className="mt-6 text-center text-xs text-ink-dim">You were invited to a shared galaxy. No account needed.</div>
+        )}
+
+        <div className={`mt-8 surface rounded-3xl p-5 ${inviteOk ? "" : "hidden"}`}>
           {phase === "idle" && (
             <>
               <button
@@ -144,9 +176,11 @@ function Join() {
                 >
                   Add another
                 </button>
-                <Link href="/galaxy" className="btn-dark flex-1 justify-center">
-                  See it on screen
-                </Link>
+                {invite ? (
+                  <span className="btn-dark flex-1 justify-center">Watch the big screen ✦</span>
+                ) : (
+                  <Link href="/galaxy" className="btn-dark flex-1 justify-center">See it on screen</Link>
+                )}
               </div>
             </div>
           )}

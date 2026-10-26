@@ -5,6 +5,9 @@ threading.stack_size(64 * 1024 * 1024)  # Windows worker threads default to 1 MB
 
 from ultralytics import YOLO  # noqa: E402,F401  -- torch DLLs must load before numpy/PIL users on Windows
 
+import base64  # noqa: E402
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
 import io  # noqa: E402
 import json  # noqa: E402
 import os  # noqa: E402
@@ -22,7 +25,7 @@ import cloudinary.uploader  # noqa: E402
 import httpx  # noqa: E402
 import imagehash  # noqa: E402
 import numpy as np  # noqa: E402
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile  # noqa: E402
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile  # noqa: E402
 from fastapi.concurrency import run_in_threadpool  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from PIL import Image  # noqa: E402
@@ -52,6 +55,7 @@ app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "*").
 class User(BaseModel):
     id: str
     token: str
+    service: bool = False  # invite uploads act for the galaxy owner via the service role (bypasses RLS)
 
 
 _token_cache: dict[str, tuple[float, str]] = {}
@@ -74,7 +78,7 @@ def auth(authorization: str = Header(default="")) -> User:
 
 def db(u: User) -> httpx.Client:
     return httpx.Client(base_url=f"{SB_URL}/rest/v1", timeout=30, headers={
-        "apikey": SB_ANON, "Authorization": f"Bearer {u.token}",
+        "apikey": u.token if u.service else SB_ANON, "Authorization": f"Bearer {u.token}",
         "Content-Type": "application/json", "Prefer": "return=representation"})
 
 
@@ -125,7 +129,7 @@ _phash_cache: dict[str, list[tuple[str, imagehash.ImageHash]]] = {}
 def _near_duplicate(u: User, ph: str) -> str | None:
     if u.id not in _phash_cache:
         with db(u) as c:
-            rows = _ok(c.get("/images", params={"select": "id,phash", "phash": "not.is.null"}))
+            rows = _ok(c.get("/images", params={"select": "id,phash", "phash": "not.is.null", "user_id": f"eq.{u.id}"}))
         _phash_cache[u.id] = [(r["id"], imagehash.hex_to_hash(r["phash"])) for r in rows or []]
     h = imagehash.hex_to_hash(ph)
     for img_id, other in _phash_cache[u.id]:
@@ -136,7 +140,46 @@ def _near_duplicate(u: User, ph: str) -> str | None:
 
 @app.post("/images")
 async def upload(file: UploadFile = File(...), u: User = Depends(auth)):
-    raw = await file.read()
+    return await _ingest(await file.read(), u)
+
+
+# ------------------------------------------------------------------ shared-galaxy invites
+SERVICE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+INVITE_SECRET = (os.getenv("INVITE_SECRET") or hashlib.sha256(f"bliss-invite:{SERVICE_KEY}".encode()).hexdigest()).encode()
+
+
+def _sign(uid: str) -> str:
+    return base64.urlsafe_b64encode(hmac.new(INVITE_SECRET, uid.encode(), hashlib.sha256).digest()[:16]).decode().rstrip("=")
+
+
+def _invite_owner(token: str) -> str:
+    uid, _, sig = token.partition(".")
+    if not SERVICE_KEY or not uid or not hmac.compare_digest(sig, _sign(uid)):
+        raise HTTPException(404, "invite not found")
+    return uid
+
+
+@app.post("/invites")
+def create_invite(u: User = Depends(auth)):
+    """Stateless invite: token = owner id + HMAC. Anyone holding it can add photos to that galaxy."""
+    if not SERVICE_KEY:
+        raise HTTPException(503, "invites need SUPABASE_SERVICE_ROLE_KEY on the API")
+    return {"token": f"{u.id}.{_sign(u.id)}"}
+
+
+@app.get("/join/{token}")
+def check_invite(token: str):
+    _invite_owner(token)
+    return {"ok": True}
+
+
+@app.post("/join/{token}/images")
+async def join_upload(token: str, file: UploadFile = File(...), name: str = Form(default="")):
+    owner = User(id=_invite_owner(token), token=SERVICE_KEY, service=True)
+    return await _ingest(await file.read(), owner, uploader=name.strip()[:40] or "Guest")
+
+
+async def _ingest(raw: bytes, u: User, uploader: str | None = None) -> dict:
     try:
         pre = await run_in_threadpool(pipeline.preprocess, raw)
     except pipeline.BadImage as e:
@@ -170,6 +213,8 @@ async def upload(file: UploadFile = File(...), u: User = Depends(auth)):
     x, y, z, cluster = _place(u, res["embedding"])
     row = {
         "id": f"{u.id[:8]}_{pre['sha256'][:20]}",
+        "user_id": u.id,
+        "uploader_name": uploader,
         "url": up["secure_url"],
         "thumb": f"https://res.cloudinary.com/{CLOUD}/image/upload/c_fill,w_400,h_500,q_auto,f_auto/{pid}",
         "cloudinary_public_id": pid,
@@ -354,13 +399,13 @@ def _rebuild(u: User) -> dict:
         coords = umap.UMAP(n_components=3, n_neighbors=min(15, n - 1), min_dist=0.2, metric="cosine",
                            random_state=42).fit_transform(X)
         labels = HDBSCAN(min_cluster_size=max(3, n // 30), min_samples=2).fit_predict(coords)
-    coords = coords - coords.mean(0)
-    coords = coords / (np.abs(coords).max() or 1) * 8
+    labels = _absorb_noise(coords, labels, n)
+    coords, centers = _arrange(coords, labels)
 
     cats = get_models()
     label_of = {l["slug"]: l["label"] for l in cats.labels}
     clusters, payload = [], []
-    for k in sorted(set(labels) - {-1}):
+    for k in sorted(set(labels)):
         idx = np.where(labels == k)[0]
         cid = f"{u.id[:8]}_c{k}"
         common = Counter(rows[i]["primary_category"] for i in idx).most_common(1)[0][0]
@@ -371,14 +416,57 @@ def _rebuild(u: User) -> dict:
                 name = str(pipeline.gemini(f'Photo captions from one cluster: {caps}. Reply ONLY JSON {{"label": "1-3 word name"}}')["label"])[:32]
             except Exception as e:  # noqa: BLE001
                 print("cluster naming failed:", e)
-        c = coords[idx].mean(0)
+        c = centers[k]
         clusters.append({"id": cid, "label": name, "size": int(len(idx)), "cx": float(c[0]), "cy": float(c[1]), "cz": float(c[2])})
     for i, r in enumerate(rows):
         payload.append({"id": r["id"], "x": float(coords[i, 0]), "y": float(coords[i, 1]), "z": float(coords[i, 2]),
-                        "cluster_id": f"{u.id[:8]}_c{labels[i]}" if labels[i] != -1 else None})
+                        "cluster_id": f"{u.id[:8]}_c{labels[i]}"})
     with db(u) as c:
         _ok(c.delete("/user_clusters", params={"user_id": f"eq.{u.id}"}))
         if clusters:
             _ok(c.post("/user_clusters", json=clusters))
         _ok(c.post("/rpc/update_layout", json={"payload": payload}))
     return {"clusters": len(clusters), "images": n, "noise": int((labels == -1).sum())}
+
+
+def _absorb_noise(coords: np.ndarray, labels: np.ndarray, n: int) -> np.ndarray:
+    """HDBSCAN noise (-1) joins its nearest cluster so no stars float randomly; all-noise falls back to KMeans."""
+    labels = labels.copy()
+    if (labels == -1).all():
+        from sklearn.cluster import KMeans
+        return KMeans(n_clusters=max(1, min(8, n // 6)), n_init=4, random_state=0).fit_predict(coords)
+    ks = sorted(set(labels) - {-1})
+    cents = np.stack([coords[labels == k].mean(0) for k in ks])
+    for i in np.where(labels == -1)[0]:
+        labels[i] = ks[int(np.argmin(((cents - coords[i]) ** 2).sum(1)))]
+    remap = {k: j for j, k in enumerate(sorted(set(labels)))}
+    return np.array([remap[k] for k in labels])
+
+
+def _arrange(coords: np.ndarray, labels: np.ndarray) -> tuple[np.ndarray, dict[int, np.ndarray]]:
+    """Each cluster becomes a compact sphere (keeping its internal UMAP shape); clusters sit on a flat
+    golden-angle spiral, biggest in the middle, spaced so neighbours never touch."""
+    ks = sorted(set(labels), key=lambda k: -(labels == k).sum())
+    radius = {k: 1.0 + 0.35 * np.sqrt((labels == k).sum()) for k in ks}
+    gap = 2.0
+    spacing = 2 * max(radius.values()) + gap
+    golden = np.pi * (3 - np.sqrt(5))
+    out = np.zeros_like(coords, dtype=np.float64)
+    centers: dict[int, np.ndarray] = {}
+    placed: list[tuple[np.ndarray, float]] = []
+    for j, k in enumerate(ks):
+        r = spacing * np.sqrt(j) * 0.85
+        ang = j * golden
+        c = np.array([np.cos(ang) * r, ((j % 3) - 1) * 0.8, np.sin(ang) * r])
+        # nudge outward until clear of every placed system
+        while any(np.linalg.norm(c - pc) < pr + radius[k] + gap for pc, pr in placed):
+            c[[0, 2]] *= 1.08 if np.linalg.norm(c[[0, 2]]) > 0 else 1
+            if np.linalg.norm(c[[0, 2]]) == 0:
+                c[0] = spacing
+        placed.append((c, radius[k]))
+        centers[k] = c
+        idx = np.where(labels == k)[0]
+        local = coords[idx] - coords[idx].mean(0)
+        scale = np.abs(local).max() if len(idx) > 1 else 1.0
+        out[idx] = c + local / (scale or 1.0) * radius[k]
+    return out, centers

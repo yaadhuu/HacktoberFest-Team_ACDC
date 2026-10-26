@@ -168,7 +168,8 @@ class Models:
     def count_faces(self, img: Image.Image) -> int:
         g = cv2.cvtColor(np.asarray(img), cv2.COLOR_RGB2GRAY)
         side = min(g.shape)
-        found = self.faces.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(max(24, side // 12),) * 2)
+        with _lock:  # CascadeClassifier is not thread-safe
+            found = self.faces.detectMultiScale(g, scaleFactor=1.1, minNeighbors=6, minSize=(max(24, side // 12),) * 2)
         return len(found)
 
 

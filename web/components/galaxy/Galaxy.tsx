@@ -1,6 +1,6 @@
 "use client";
 import { Canvas, useFrame, useLoader, useThree } from "@react-three/fiber";
-import { Html, OrbitControls } from "@react-three/drei";
+import { Html, OrbitControls, Stars as Starfield } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { cdn, type Cluster, type Img } from "@/lib/supabase";
@@ -26,7 +26,10 @@ export default function Galaxy(p: GalaxyProps) {
   return (
     <Canvas camera={{ position: [0, 8, 70], fov: 50, near: 0.1, far: 400 }} dpr={[1, 1.75]} gl={{ antialias: true }}>
       <color attach="background" args={["#05060a"]} />
+      <Nebula />
+      <Starfield radius={140} depth={60} count={7000} factor={4} saturation={0} fade speed={0.6} />
       <Dust />
+      <Meteors imgs={p.imgs} onSelect={p.onSelect} />
       <Stars {...p} />
       <CameraRig {...p} />
     </Canvas>
@@ -216,7 +219,7 @@ function Thumbs({ imgs, buf }: { imgs: Img[]; buf: React.MutableRefObject<Buffer
     <>
       {near.map((i) => imgs[i] && (
         <Suspense key={imgs[i].id} fallback={null}>
-          <Thumb url={cdn(imgs[i], 128)} index={i} buf={buf} />
+          <Thumb url={cdn(imgs[i], 320)} index={i} buf={buf} />
         </Suspense>
       ))}
     </>
@@ -244,6 +247,14 @@ function squircle() {
 
 function Thumb({ url, index, buf }: { url: string; index: number; buf: React.MutableRefObject<Buffers | null> }) {
   const tex = useLoader(THREE.TextureLoader, url);
+  const { gl } = useThree();
+  useMemo(() => {
+    tex.colorSpace = THREE.SRGBColorSpace; // without this photos look washed out
+    tex.anisotropy = gl.capabilities.getMaxAnisotropy();
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+  }, [tex, gl]);
   const ref = useRef<THREE.Mesh>(null!);
   const fade = useRef(0);
   useFrame(({ camera }, dt) => {
@@ -264,15 +275,16 @@ function Thumb({ url, index, buf }: { url: string; index: number; buf: React.Mut
   );
 }
 
+/** One consistent style; each label floats just above its system (radius mirrors api _arrange). */
 function ClusterLabels({ clusters }: { clusters: Cluster[] }) {
-  const max = Math.max(1, ...clusters.map((c) => c.size));
   return (
     <>
       {clusters.map((c) => (
-        <Html key={c.id} position={[c.cx, c.cy + 1.2, c.cz]} center distanceFactor={14} style={{ pointerEvents: "none" }}>
-          <div className="whitespace-nowrap uppercase tracking-[0.25em] text-white/60"
-            style={{ fontSize: 10 + 8 * (c.size / max), opacity: 0.45 + 0.55 * (c.size / max) }}>
-            {c.label}
+        <Html key={c.id} position={[c.cx, c.cy + 1.0 + 0.35 * Math.sqrt(c.size) + 0.7, c.cz]} center distanceFactor={16}
+          style={{ pointerEvents: "none" }}>
+          <div className="whitespace-nowrap text-center select-none">
+            <div className="uppercase tracking-[0.3em] text-[13px] text-white/75">{c.label}</div>
+            <div className="mt-0.5 text-[10px] tracking-widest text-white/35 tabular-nums">{c.size}</div>
           </div>
         </Html>
       ))}
@@ -325,6 +337,8 @@ function CameraRig({ clusters, imgs, scores, matches, mode, introKey, onIntroEnd
   const controls = useRef<any>(null);
   const intro = useRef<{ shots: Shot[]; i: number; t: number; from: { pos: THREE.Vector3; look: THREE.Vector3 } } | null>(null);
   const fly = useRef<{ pos: THREE.Vector3; look: THREE.Vector3 } | null>(null);
+  const lastInput = useRef(performance.now());
+  const IDLE_MS = 8000;
   const ready = imgs.length > 0;
 
   // start (or replay) the intro
@@ -396,11 +410,107 @@ function CameraRig({ clusters, imgs, scores, matches, mode, introKey, onIntroEnd
       c.target.lerp(fly.current.look, k);
       if (camera.position.distanceTo(fly.current.pos) < 0.05) fly.current = null;
     }
+    // idle drift: after IDLE_MS without input, slowly orbit (ramped in so it never jerks)
+    if (c) {
+      const idle = !fly.current && !selectedId && performance.now() - lastInput.current > IDLE_MS;
+      c.autoRotate = idle || c.autoRotateSpeed > 0.01;
+      c.autoRotateSpeed += ((idle ? 0.35 : 0) - c.autoRotateSpeed) * Math.min(1, dt * 0.8);
+    }
     c?.update();
   });
 
   return (
     <OrbitControls ref={controls} enableDamping dampingFactor={0.03} rotateSpeed={0.55} zoomSpeed={0.6} panSpeed={0.6} minDistance={1.5} maxDistance={90}
-      onStart={() => { fly.current = null; }} />
+      onStart={() => { fly.current = null; lastInput.current = performance.now(); if (controls.current) { controls.current.autoRotateSpeed = 0; controls.current.autoRotate = false; } }} />
+  );
+}
+
+// ---------------------------------------------------------------- deep space: nebula skydome
+const nebulaFrag = /* glsl */ `
+varying vec3 vDir;
+float hash(vec3 p) { return fract(sin(dot(p, vec3(127.1, 311.7, 74.7))) * 43758.5453); }
+float noise(vec3 p) {
+  vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
+}
+float fbm(vec3 p) { float v = 0.0, a = 0.5; for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.03; a *= 0.5; } return v; }
+void main() {
+  vec3 d = normalize(vDir);
+  float band = exp(-pow(dot(d, normalize(vec3(0.25, 1.0, 0.35))) * 3.2, 2.0));   // tilted Milky Way band
+  float n = fbm(d * 3.0 + 7.0);
+  float dust = smoothstep(0.45, 0.85, fbm(d * 6.0 + 3.0));                       // dark lanes
+  float glow = band * (0.35 + 0.65 * n) * (1.0 - 0.6 * dust);
+  float cloud = pow(fbm(d * 2.0 + 13.0), 3.0) * 0.6;                             // faint off-band clouds
+  vec3 col = vec3(0.06, 0.07, 0.10) * glow + vec3(0.16, 0.11, 0.07) * glow * n * band + vec3(0.03, 0.035, 0.06) * cloud;
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+function Nebula() {
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    vertexShader: "varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: nebulaFrag, side: THREE.BackSide, depthWrite: false,
+  }), []);
+  const ref = useRef<THREE.Mesh>(null!);
+  useFrame(({ camera }, dt) => { ref.current.position.copy(camera.position); ref.current.rotation.y += dt * 0.004; });
+  return <mesh ref={ref} material={mat} renderOrder={-1}><sphereGeometry args={[300, 48, 32]} /></mesh>;
+}
+
+// ---------------------------------------------------------------- meteors: click one to surface a random memory
+type Meteor = { start: THREE.Vector3; vel: THREE.Vector3; t: number; life: number };
+
+function Meteors({ imgs, onSelect }: { imgs: Img[]; onSelect: (img: Img) => void }) {
+  const [m, setM] = useState<Meteor | null>(null);
+  const next = useRef(4 + Math.random() * 6);
+  const head = useRef<THREE.Group>(null!);
+  const trail = useRef<THREE.Mesh>(null!);
+  const trailMat = useMemo(() => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+    uniforms: { uFade: { value: 1 } },
+    vertexShader: "varying float vY; void main(){ vY = uv.y; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }",
+    fragmentShader: "uniform float uFade; varying float vY; void main(){ float a = pow(vY, 2.2) * uFade; gl_FragColor = vec4(vec3(1.0, 0.92, 0.8) * a, a); }",
+  }), []);
+
+  useFrame(({ camera }, dt) => {
+    if (!m) {
+      next.current -= dt;
+      if (next.current <= 0 && imgs.length) {
+        // spawn in view: ahead of the camera, upper side, streaking diagonally down across the screen
+        const fwd = camera.getWorldDirection(new THREE.Vector3());
+        const right = new THREE.Vector3().crossVectors(fwd, camera.up).normalize();
+        const up = new THREE.Vector3().crossVectors(right, fwd).normalize();
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const start = camera.position.clone().add(fwd.clone().multiplyScalar(28))
+          .add(right.clone().multiplyScalar(side * (8 + Math.random() * 8))).add(up.clone().multiplyScalar(8 + Math.random() * 5));
+        const vel = right.clone().multiplyScalar(-side * 1).add(up.clone().multiplyScalar(-0.55)).normalize().multiplyScalar(14 + Math.random() * 6);
+        setM({ start, vel, t: 0, life: 2.4 });
+      }
+      return;
+    }
+    m.t += dt;
+    const p = m.start.clone().addScaledVector(m.vel, m.t);
+    head.current.position.copy(p);
+    // trail: a thin tapered quad pointing back along the velocity
+    const len = Math.min(6, 2 + m.t * 6);
+    const dir = m.vel.clone().normalize();
+    trail.current.position.copy(p).addScaledVector(dir, -len / 2);
+    trail.current.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    trail.current.scale.set(1, len, 1);
+    const fade = Math.min(1, m.t * 4) * Math.min(1, (m.life - m.t) * 2);
+    trailMat.uniforms.uFade.value = fade;
+    (head.current.children[0] as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.opacity = fade;
+    if (m.t >= m.life) { setM(null); next.current = 7 + Math.random() * 12; }
+  });
+
+  if (!m) return null;
+  return (
+    <>
+      <group ref={head} onClick={(e) => { e.stopPropagation(); onSelect(imgs[Math.floor(Math.random() * imgs.length)]); setM(null); next.current = 6 + Math.random() * 10; }}
+        onPointerOver={() => (document.body.style.cursor = "pointer")} onPointerOut={() => (document.body.style.cursor = "default")}>
+        <mesh><sphereGeometry args={[0.12, 12, 12]} /><meshBasicMaterial color="#fff6e8" transparent /></mesh>
+        <mesh><sphereGeometry args={[1.6, 8, 8]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} /></mesh>
+      </group>
+      <mesh ref={trail} material={trailMat}><cylinderGeometry args={[0.05, 0.003, 1, 8, 1, true]} /></mesh>
+    </>
   );
 }

@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-export const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+/** Browser calls go through the same-origin Next proxy (next.config rewrites), so LAN IPs and ngrok just work. */
+export const apiUrl = () => process.env.NEXT_PUBLIC_API_URL || "/api-proxy";
 
 let _client: SupabaseClient | null = null;
 export function supabase(): SupabaseClient {
@@ -31,7 +32,7 @@ export async function api<T = unknown>(path: string, init: RequestInit = {}): Pr
   const headers = new Headers(init.headers);
   headers.set("Authorization", `Bearer ${token}`);
   if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const r = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const r = await fetch(`${apiUrl()}${path}`, { ...init, headers });
   if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
   return r.json() as Promise<T>;
 }
@@ -71,5 +72,5 @@ export const IMG_COLS =
 export function cdn(img: Pick<Img, "cloudinary_public_id" | "thumb">, size: number) {
   const cloud = process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME;
   if (!img.cloudinary_public_id || !cloud) return img.thumb;
-  return `https://res.cloudinary.com/${cloud}/image/upload/c_fill,w_${size},h_${size},q_auto,f_auto/${img.cloudinary_public_id}`;
+  return `https://res.cloudinary.com/${cloud}/image/upload/c_fill,g_auto,w_${size},h_${size},q_auto:good,f_auto/${img.cloudinary_public_id}`;
 }
