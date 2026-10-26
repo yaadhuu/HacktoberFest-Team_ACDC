@@ -7,7 +7,6 @@ import Logo from "./Logo";
 const DARK_ROUTES = ["/galaxy"];
 
 const links = [
-  { href: "/explore", label: "Explore" },
   { href: "/galaxy", label: "Galaxy" },
   { href: "/search", label: "Search" },
   { href: "/upload", label: "Upload" },

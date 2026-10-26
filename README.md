@@ -26,7 +26,6 @@ Mock mode (`NEXT_PUBLIC_MOCK=1`) runs the whole UI offline against local fixture
 ## Routes
 
 - `/` landing + chat search
-- `/explore` masonry grid with cluster filters + sort
 - `/galaxy` 3D/2D embedding map
 - `/search` text / image / sketch, with bbox evidence
 - `/upload` desktop drag-drop with animated pipeline (Upload → Embed → Caption → Tag → OCR → Place)

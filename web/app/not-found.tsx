@@ -9,7 +9,7 @@ export default function NotFound() {
           Lost in the <span className="italic bg-gradient-to-r from-ink via-dot-purple to-dot-blue bg-clip-text text-transparent">void.</span>
         </h1>
         <p className="text-ink-dim mt-3 text-sm">That page is not here.</p>
-        <Link href="/" className="btn-dark mt-6 inline-flex">← Back to Explore</Link>
+        <Link href="/" className="btn-dark mt-6 inline-flex">← Back home</Link>
       </div>
     </main>
   );
