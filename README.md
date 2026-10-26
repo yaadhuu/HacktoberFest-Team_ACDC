@@ -67,6 +67,12 @@ Photo libraries are huge and unsearchable. Files are named `IMG_4821.jpg`, folde
 
 ---
 
+## 🎬 Launch video
+
+A short launch video for Bliss is being produced with the Hyperframes `/brag` tool, which builds it from this project's own code. The storyboard and composition are prepared; the link will be added here once it is rendered and uploaded.
+
+> **Video link:** _coming soon_
+
 ## 📌 At a glance
 
 | | |
