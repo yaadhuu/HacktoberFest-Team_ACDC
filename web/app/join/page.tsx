@@ -1,11 +1,20 @@
 "use client";
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { addLive } from "@/lib/liveStore";
+import RequireAuth from "@/components/RequireAuth";
+import { api, type Img } from "@/lib/supabase";
 
 type Phase = "idle" | "preview" | "uploading" | "done";
 
 export default function JoinPage() {
+  return (
+    <RequireAuth>
+      <Join />
+    </RequireAuth>
+  );
+}
+
+function Join() {
   const [name, setName] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -32,8 +41,10 @@ export default function JoinPage() {
     setErr(null);
     setPhase("uploading");
     try {
-      const img = await addLive({ file: file ?? undefined, dataUrl: preview, uploader: name || undefined });
-      setCluster(img.cluster);
+      const fd = new FormData();
+      fd.append("file", file!);
+      const r = await api<{ image: Img }>("/images", { method: "POST", body: fd });
+      setCluster(r.image.primary_category ?? "");
       setPhase("done");
     } catch (e: any) {
       setErr(e?.message ?? "upload failed");

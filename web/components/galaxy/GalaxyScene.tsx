@@ -4,7 +4,7 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 import { CLUSTERS, IMAGES, mockSearch } from "@/lib/mock";
-import { fetchAllImages, subscribe } from "@/lib/liveStore";
+import { fetchAllImages, subscribe, toItem } from "@/lib/liveStore";
 import type { ImageItem } from "@/lib/types";
 
 type Props = {
@@ -66,8 +66,9 @@ function SceneContents({ mode, query, activeClusters, onSelect, onLiveArrive, to
 
   useEffect(() => {
     let cancelled = false;
-    fetchAllImages().then((imgs) => { if (!cancelled) setAll(imgs); });
-    const unsub = subscribe((img) => {
+    fetchAllImages().then((imgs) => { if (!cancelled) setAll(imgs.map(toItem)); });
+    const unsub = subscribe((row) => {
+      const img = toItem(row);
       setAll((prev) => prev.some((p) => p.id === img.id) ? prev : [...prev, img]);
       setArrivingId(img.id);
       onLiveArrive?.(img);

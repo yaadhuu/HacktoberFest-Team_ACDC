@@ -1,35 +1,36 @@
 "use client";
 import { useEffect, useState } from "react";
-import { IS_MOCK, supabase } from "@/lib/supabase";
-import { clearLive, fetchAllImages } from "@/lib/liveStore";
+import RequireAuth from "@/components/RequireAuth";
+import { api, supabase } from "@/lib/supabase";
 
 export default function AdminPage() {
+  return (
+    <RequireAuth>
+      <Admin />
+    </RequireAuth>
+  );
+}
+
+function Admin() {
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   async function refresh() {
-    const all = await fetchAllImages();
-    setCount(all.filter((i) => i.source === "live").length);
+    const { count: c } = await supabase().from("images").select("id", { count: "exact", head: true });
+    setCount(c ?? 0);
   }
-
   useEffect(() => { refresh(); }, []);
 
-  async function wipe() {
-    if (!confirm("Delete every live upload? This cannot be undone.")) return;
+  async function act(label: string, fn: () => Promise<unknown>) {
     setBusy(true);
     setMsg(null);
     try {
-      if (IS_MOCK) {
-        clearLive();
-      } else {
-        const { error } = await supabase().from("images").delete().eq("source", "live");
-        if (error) throw error;
-      }
-      setMsg("Live uploads cleared.");
+      await fn();
+      setMsg(`${label}: done.`);
       await refresh();
-    } catch (e: any) {
-      setMsg(`Error: ${e?.message ?? e}`);
+    } catch (e) {
+      setMsg(`${label} failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -38,34 +39,27 @@ export default function AdminPage() {
   return (
     <main className="pt-24 pb-16 px-5 min-h-screen">
       <div className="max-w-xl mx-auto">
-        <div className="text-xs uppercase tracking-[0.2em] text-ink-faint mb-2">Admin</div>
-        <h1 className="font-display text-5xl tracking-tightest">
-          Reset the <span className="italic">demo.</span>
-        </h1>
-        <p className="mt-3 text-ink-dim text-sm">
-          Hidden page. Removes every live upload. Preloaded set is untouched.
-        </p>
-
-        <div className="mt-8 surface rounded-2xl p-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <div className="text-sm font-medium">Live uploads</div>
-              <div className="text-xs text-ink-dim">
-                Mode: <span className="text-ink">{IS_MOCK ? "mock (localStorage)" : "supabase"}</span>
-              </div>
-            </div>
-            <div className="text-3xl font-display tabular-nums">
-              {count ?? "…"}
-            </div>
+        <h1 className="font-display text-5xl tracking-tightest">Your <span className="italic">galaxy.</span></h1>
+        <div className="mt-8 surface rounded-2xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium">Images in your galaxy</div>
+            <div className="text-3xl font-display tabular-nums">{count ?? "…"}</div>
           </div>
-          <button
-            onClick={wipe}
-            disabled={busy || count === 0}
-            className="mt-5 w-full justify-center btn-dark disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {busy ? "Clearing…" : "Clear live uploads"}
+          <button disabled={busy} onClick={() => act("Re-cluster", () => api("/galaxy/rebuild", { method: "POST" }))}
+            className="w-full justify-center btn-ghost border border-ink-line disabled:opacity-40">
+            Re-run UMAP + HDBSCAN
           </button>
-          {msg && <div className="mt-3 text-xs text-ink-dim">{msg}</div>}
+          <button disabled={busy || !count}
+            onClick={() => confirm("Delete every image in your galaxy? This cannot be undone.") &&
+              act("Reset", async () => {
+                const { data } = await supabase().auth.getUser();
+                const { error } = await supabase().from("images").delete().eq("user_id", data.user!.id);
+                if (error) throw error;
+              })}
+            className="w-full justify-center btn-dark disabled:opacity-40">
+            Reset my galaxy
+          </button>
+          {msg && <div className="text-xs text-ink-dim">{msg}</div>}
         </div>
       </div>
     </main>

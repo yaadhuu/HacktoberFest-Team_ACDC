@@ -35,3 +35,9 @@ models/
 *.log
 .vscode/
 .idea/
+
+# build info / caches
+*.tsbuildinfo
+api/cache/
+api/eval_images/
+*.pt
