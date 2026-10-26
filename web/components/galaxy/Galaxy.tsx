@@ -194,8 +194,7 @@ function Stars(p: GalaxyProps) {
 }
 
 // ---------------------------------------------------------------- LOD: thumbnails near the camera
-const THUMB_DIST = 9;
-const MAX_THUMBS = 48;
+const MAX_THUMBS = 600;
 
 function Thumbs({ imgs, buf }: { imgs: Img[]; buf: React.MutableRefObject<Buffers | null> }) {
   const [near, setNear] = useState<number[]>([]);
@@ -207,7 +206,7 @@ function Thumbs({ imgs, buf }: { imgs: Img[]; buf: React.MutableRefObject<Buffer
     for (let i = 0; i < imgs.length; i++) {
       const dx = p[i * 3] - camera.position.x, dy = p[i * 3 + 1] - camera.position.y, dz = p[i * 3 + 2] - camera.position.z;
       const d = dx * dx + dy * dy + dz * dz;
-      if (d < THUMB_DIST * THUMB_DIST && buf.current.bright[i] > 0.3) cands.push([d, i]);
+      if (buf.current.bright[i] > 0.05) cands.push([d, i]);
     }
     cands.sort((a, b) => a[0] - b[0]);
     const next = cands.slice(0, MAX_THUMBS).map((c) => c[1]).sort((a, b) => a - b);
@@ -224,6 +223,25 @@ function Thumbs({ imgs, buf }: { imgs: Img[]; buf: React.MutableRefObject<Buffer
   );
 }
 
+/** Shared superellipse (|x|^4 + |y|^4 = 1) alpha mask, antialiased edge. */
+let _squircle: THREE.CanvasTexture | null = null;
+function squircle() {
+  if (_squircle) return _squircle;
+  const n = 128, c = document.createElement("canvas");
+  c.width = c.height = n;
+  const ctx = c.getContext("2d")!, img = ctx.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const u = (x + 0.5) / n * 2 - 1, v = (y + 0.5) / n * 2 - 1;
+    const r = Math.pow(Math.pow(Math.abs(u), 4) + Math.pow(Math.abs(v), 4), 0.25);
+    const a = Math.max(0, Math.min(1, (1 - r) * n * 0.5)) * 255;
+    const i = (y * n + x) * 4;
+    img.data[i] = img.data[i + 1] = img.data[i + 2] = a;
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return (_squircle = new THREE.CanvasTexture(c));
+}
+
 function Thumb({ url, index, buf }: { url: string; index: number; buf: React.MutableRefObject<Buffers | null> }) {
   const tex = useLoader(THREE.TextureLoader, url);
   const ref = useRef<THREE.Mesh>(null!);
@@ -234,15 +252,14 @@ function Thumb({ url, index, buf }: { url: string; index: number; buf: React.Mut
     ref.current.position.set(b.pos[index * 3], b.pos[index * 3 + 1], b.pos[index * 3 + 2]);
     ref.current.quaternion.copy(camera.quaternion);
     fade.current = Math.min(1, fade.current + dt * 2.5);
-    const d = camera.position.distanceTo(ref.current.position);
     const m = ref.current.material as THREE.MeshBasicMaterial;
-    m.opacity = fade.current * Math.min(1, (THUMB_DIST - d) / 2.5) * Math.min(1, b.bright[index] * 1.4);
-    ref.current.scale.setScalar(0.35 * b.size[index]);
+    m.opacity = fade.current * Math.min(1, b.bright[index] * 1.4);
+    ref.current.scale.setScalar(0.9 * b.size[index]);
   });
   return (
     <mesh ref={ref}>
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial map={tex} transparent opacity={0} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial map={tex} alphaMap={squircle()} transparent opacity={0} depthWrite={false} toneMapped={false} />
     </mesh>
   );
 }
@@ -383,7 +400,7 @@ function CameraRig({ clusters, imgs, scores, matches, mode, introKey, onIntroEnd
   });
 
   return (
-    <OrbitControls ref={controls} enableDamping dampingFactor={0.08} minDistance={1.5} maxDistance={90}
+    <OrbitControls ref={controls} enableDamping dampingFactor={0.03} rotateSpeed={0.55} zoomSpeed={0.6} panSpeed={0.6} minDistance={1.5} maxDistance={90}
       onStart={() => { fly.current = null; }} />
   );
 }

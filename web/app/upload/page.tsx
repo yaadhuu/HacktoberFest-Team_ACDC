@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
+import { unzip } from "fflate";
 import RequireAuth from "@/components/RequireAuth";
 import { api, type Img } from "@/lib/supabase";
 
@@ -93,7 +94,15 @@ function Uploader() {
     }
   }
 
-  function add(files: File[]) {
+  async function add(files: File[]) {
+    const zips = files.filter((f) => /\.zip$/i.test(f.name));
+    for (const z of zips) {
+      try {
+        files = [...files, ...(await unzipImages(z))];
+      } catch (e) {
+        setLayout(`Could not read ${z.name}: ${(e as Error).message}`);
+      }
+    }
     for (const f of files) {
       if (!IMAGE_EXT.test(f.name)) continue;
       const key = `${f.webkitRelativePath || f.name}:${f.size}:${f.lastModified}`;
@@ -141,11 +150,11 @@ function Uploader() {
           className={`mt-8 rounded-3xl border border-dashed transition ${drag ? "bg-cream-card border-ink" : "bg-cream-soft border-ink-line"}`}
         >
           <div className="py-14 grid place-items-center text-center px-6 gap-4">
-            <div className="font-medium">Drop photos or folders here</div>
+            <div className="font-medium">Drop photos, folders or .zip files here</div>
             <div className="flex gap-2">
               <label className="btn-dark cursor-pointer">
                 Choose files
-                <input type="file" accept="image/*" multiple hidden onChange={(e) => add(Array.from(e.target.files ?? []))} />
+                <input type="file" accept="image/*,.zip,application/zip" multiple hidden onChange={(e) => add(Array.from(e.target.files ?? []))} />
               </label>
               <label className="btn-ghost border border-ink-line cursor-pointer">
                 Choose folder
@@ -154,7 +163,7 @@ function Uploader() {
                   onChange={(e) => add(Array.from(e.target.files ?? []))} />
               </label>
             </div>
-            <div className="text-xs text-ink-faint">JPG · PNG · WebP · up to 30 MB each · duplicates are skipped</div>
+            <div className="text-xs text-ink-faint">JPG · PNG · WebP · ZIP archives · up to 30 MB per photo · duplicates are skipped</div>
           </div>
         </div>
 
@@ -222,4 +231,18 @@ async function walk(entries: FileSystemEntry[]): Promise<File[]> {
     }
   }
   return out;
+}
+
+/** Unzip in the browser (fflate, off-main-thread for large entries); keep image entries only. */
+async function unzipImages(zip: File): Promise<File[]> {
+  const buf = new Uint8Array(await zip.arrayBuffer());
+  const entries = await new Promise<Record<string, Uint8Array>>((res, rej) =>
+    unzip(buf, { filter: (f) => IMAGE_EXT.test(f.name) && !/(^|\/)(__MACOSX|\.)/.test(f.name) }, (err, out) => (err ? rej(err) : res(out))),
+  );
+  return Object.entries(entries).map(([path, data]) => {
+    const name = path.split("/").pop()!;
+    const ext = name.split(".").pop()!.toLowerCase();
+    const type = ext === "jpg" ? "image/jpeg" : `image/${ext}`;
+    return new File([data], path.replaceAll("/", "_"), { type, lastModified: zip.lastModified });
+  });
 }
