@@ -1,12 +1,19 @@
 """Bliss ML API. Every request carries the user's Supabase JWT; all DB access runs as that user, so RLS applies."""
-import io
-import json
-import os
-import random
-import time
-from collections import Counter
+import threading
 
-from dotenv import load_dotenv
+threading.stack_size(64 * 1024 * 1024)  # Windows worker threads default to 1 MB; model inference overflows it
+
+from ultralytics import YOLO  # noqa: E402,F401  -- torch DLLs must load before numpy/PIL users on Windows
+
+import io  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+import random  # noqa: E402
+import time  # noqa: E402
+from collections import Counter  # noqa: E402
+from contextlib import asynccontextmanager  # noqa: E402
+
+from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv()
 
@@ -30,7 +37,13 @@ CLOUD = os.environ["CLOUDINARY_CLOUD_NAME"]
 cloudinary.config(cloud_name=CLOUD, api_key=os.environ["CLOUDINARY_API_KEY"],
                   api_secret=os.environ["CLOUDINARY_API_SECRET"], secure=True)
 
-app = FastAPI(title="bliss-api")
+@asynccontextmanager
+async def lifespan(_app):
+    get_models()  # load once on the main thread at startup, not inside a request
+    yield
+
+
+app = FastAPI(title="bliss-api", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "*").split(","),
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -254,6 +267,20 @@ async def search_image(file: UploadFile = File(...), u: User = Depends(auth)):
     except pipeline.BadImage as e:
         raise HTTPException(400, str(e)) from e
     emb = (await run_in_threadpool(get_models().embed_images, [pre["thumb"]]))[0]
+    return {"results": await run_in_threadpool(_rank, u, emb, [], 400)}
+
+
+class SimilarBody(BaseModel):
+    image_id: str
+
+
+@app.post("/similar")
+async def similar(body: SimilarBody, u: User = Depends(auth)):
+    with db(u) as c:
+        rows = _ok(c.get("/images", params={"id": f"eq.{body.image_id}", "select": "embedding"}))
+    if not rows or not rows[0].get("embedding"):
+        raise HTTPException(404, "image not found")
+    emb = np.array(json.loads(rows[0]["embedding"]), np.float32)
     return {"results": await run_in_threadpool(_rank, u, emb, [], 400)}
 
 

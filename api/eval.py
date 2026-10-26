@@ -4,6 +4,8 @@ Usage:  python eval.py            # SigLIP + YOLO only
         python eval.py --verify   # also lets the Gemma verifier arbitrate (needs GEMINI_API_KEY)
 Exit code 1 if any person is classified as food.
 """
+from ultralytics import YOLO  # noqa: F401  -- load torch DLLs first (Windows)
+
 import io
 import json
 import sys

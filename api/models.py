@@ -117,14 +117,14 @@ class Models:
         return out if isinstance(out, torch.Tensor) else out.pooler_output
 
     def embed_images(self, imgs: list[Image.Image]) -> np.ndarray:
-        with _lock:
+        with _lock, torch.inference_mode():
             inp = self.proc(images=imgs, return_tensors="pt")
             f = self._feats(self.siglip.get_image_features(**inp))
         f = torch.nn.functional.normalize(f, dim=-1)
         return f.numpy().astype(np.float32)
 
     def embed_texts(self, texts: list[str]) -> np.ndarray:
-        with _lock:
+        with _lock, torch.inference_mode():
             inp = self.proc(text=texts, padding="max_length", truncation=True, return_tensors="pt")
             f = self._feats(self.siglip.get_text_features(**inp))
         f = torch.nn.functional.normalize(f, dim=-1)
@@ -155,7 +155,7 @@ class Models:
 
     # ---------- detection ----------
     def detect(self, img: Image.Image) -> list[dict]:
-        with _lock:
+        with _lock, torch.inference_mode():
             r = self.yolo.predict(img, imgsz=640, conf=0.25, verbose=False)[0]
         names = r.names
         out = []

@@ -9,107 +9,39 @@ A visual AI explorer. Groups images by meaning, searches in plain words, shows t
 3. **Live judge participation** — QR on screen → `/join` on phone → photo appears flying into galaxy within ~2s via Supabase realtime.
 4. **Explainable search** at `/search` — text, by-image, or sketch; results show bounding boxes + "why it matched".
 
-## Stack
+## How it works
 
-| Layer | Tool |
-|---|---|
-| Frontend | Next.js 14 (App Router) · TypeScript · Tailwind |
-| 3D galaxy | react-three-fiber + drei + three.js |
-| Database | Supabase Postgres + `pgvector` |
-| Realtime | Supabase Realtime (postgres_changes) |
-| Image storage | Cloudinary |
-| Auth (stubbed) | Supabase Auth (ready to wire) |
-| AI (open-weight, scaffolded) | SigLIP (embeddings) · Gemma 3 (captions/explanations) · UMAP (projection) · HDBSCAN (clustering) |
+Each user gets a private galaxy: every photo is a star, clusters (UMAP 3D + HDBSCAN) are star systems.
 
-Mock mode (`NEXT_PUBLIC_MOCK=1`) runs the whole UI offline against local fixtures and `BroadcastChannel` for live-arrival — perfect for a venue with flaky wifi.
+Upload pipeline (`api/`, FastAPI): preprocess (validation, sha256 + pHash dedupe, EXIF, palette) -> detect (YOLO11n + faces; a detected person is never overridden by a weaker label) -> classify (SigLIP zero-shot over a hierarchical taxonomy, prompt ensembling, multi-label) -> verify (Gemma 4 via Gemini API when confidence is low, margins are close, or detector and classifier disagree) -> dynamic categories (merged by embedding similarity) -> Cloudinary signed upload -> Supabase insert (pgvector). Results are cached by sha256; a processed image never hits the models or Gemini twice.
 
-## Routes
+## Models (all open-weight)
 
-- `/` landing + chat search
-- `/galaxy` 3D/2D embedding map
-- `/search` text / image / sketch, with bbox evidence
-- `/upload` desktop drag-drop with animated pipeline (Upload → Embed → Caption → Tag → OCR → Place)
-- `/join` mobile camera capture + name field
-- `/u/[username]` profile with photos, collections, activity, badges
-- `/profile` → redirects to current user
-- `/login`, `/signup` minimal forms
-- `/admin` hidden reset page
-
-## Quickstart
-
-```bash
-cd web
-cp .env.local.example .env.local         # fill in Supabase + Cloudinary
-npm install --legacy-peer-deps
-npm run dev
-```
-
-Open http://localhost:3000. Flip `NEXT_PUBLIC_MOCK=0` to switch from fixtures to real Supabase + Cloudinary.
-
-### Seed the database (optional)
-
-```bash
-# from repo root
-node scripts/seed_supabase.mjs
-```
-
-Loads 72 picsum-sourced images across 6 clusters into `public.images`.
-
-## Supabase schema
-
-```
-clusters(id text pk, label, color, centroid double[])
-images(id text pk, url, thumb, caption, tags[], ocr, embedding vector(512),
-       x, y, z, cluster_id → clusters, uploader_name, source, created_at)
-searches(id uuid pk, user_id, query, created_at)
-```
-
-- `vector` extension on.
-- RLS enabled; demo policies allow public reads/inserts.
-- `public.images` added to `supabase_realtime` publication for INSERT events.
-
-## Live-arrival flow
-
-- `/join` or `/upload` → POST `/api/upload` (multipart → Cloudinary) → INSERT into `public.images`.
-- `/galaxy` subscribes to `postgres_changes` on `images`.
-- New row triggers a sprite fly-in animation + toast.
-
-In mock mode the same `lib/liveStore.ts` interface uses `BroadcastChannel` + `localStorage` instead.
-
-## Deploy
-
-- **Frontend**: Vercel. Set the same `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_MOCK=0`, and `CLOUDINARY_*` env vars.
-- **DB + realtime**: Supabase project (already provisioned in `ap-south-1`).
-- **Image storage**: Cloudinary (free tier).
-
-## Open-weight model credits (scaffolded)
-
-| Model | License | Used for |
+| Model | License | Use |
 |---|---|---|
-| SigLIP (google/siglip-base-patch16-224) | Apache 2.0 | Shared text/image embeddings |
-| Gemma 3 (via Ollama or HF) | Gemma Terms | Captions, tags, "why it matched" explanations, OCR-ish extraction |
-| UMAP (umap-learn) | BSD-3 | 3D projection |
-| HDBSCAN | BSD-3 | Cluster assignment |
+| google/siglip-base-patch16-224 | Apache 2.0 | image/text embeddings, zero-shot classification, search |
+| Ultralytics YOLO11n | AGPL-3.0 | object and person detection |
+| OpenCV Haar cascade | Apache 2.0 | face count |
+| Gemma 4 (gemma-4-26b-a4b-it, Gemini API) | Gemma terms | verifier, captions, search evidence, cluster names |
+| umap-learn / scikit-learn HDBSCAN | BSD-3 | galaxy layout and clustering |
 
-The `vector(512)` column and `/api/*` seams are ready for a FastAPI inference service; the real ML is deferred (Phase 5.5) and the UI stays plausible via deterministic mock search.
+## Eval
 
-## Repo layout
+`cd api && python eval.py [--verify]`: 69 hand-checked images (65 Wikimedia Commons, 4 synthetic). SigLIP+YOLO alone: 92.8% overall; the "person classified as food" cases pass. Exit code 1 if any person lands in food.
 
-```
-HacktoberFest/
-├── web/              Next.js app
-│   ├── app/          route handlers + pages
-│   ├── components/   UI
-│   ├── lib/          mock, types, supabase, liveStore, user
-│   ├── public/
-│   ├── .env.local.example
-│   ├── package.json
-│   └── ...
-├── scripts/
-│   └── seed_supabase.mjs
-└── README.md
+## Run
+
+```bash
+# DB: run supabase/migrations/002_pipeline_auth.sql in the Supabase SQL editor
+cd api && uv venv -p 3.12 .venv && uv pip install -p .venv/Scripts/python.exe -r requirements.txt
+cp .env.example .env   # fill in keys
+.venv/Scripts/python.exe -m uvicorn app:app --port 8000
+cd ../web && cp .env.local.example .env.local && npm install --legacy-peer-deps && npm run dev
 ```
 
-## Attribution
+Notes: needs about 2 GB RAM for the models. On Windows, `ultralytics` must be imported before SigLIP loads (already handled).
 
-Co-built with Claude. Open-source visual explorer prototype — not a product.
+## Cut for time
+
+Lasso/multi-select and bulk actions, album/cluster rename-merge-split, timeline view, minimap, 2D/3D toggle, duplicate finder UI (duplicates are skipped at upload), color/date/people filters. Category filter, find-similar, favorites, delete and download are in.
+

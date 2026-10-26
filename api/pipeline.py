@@ -5,6 +5,7 @@ import io
 import json
 import os
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -202,7 +203,7 @@ def _subcategory(m, cos, slugs, by_slug, top: str, persons: list) -> str | None:
 def _template_caption(by_slug, cat: str, dets: list) -> str:
     objs = []
     for d in dets:
-        if d["conf"] >= 0.4 and d["label"] not in objs:
+        if d["conf"] >= 0.6 and d["label"] not in objs:
             objs.append(d["label"])
     label = by_slug[cat]["label"] if cat in by_slug else cat
     return f"{label}" + (f" with {', '.join(objs[:3])}" if objs else "")
@@ -215,7 +216,7 @@ def _tags(by_slug, cats: list, dets: list) -> list[str]:
             if t not in tags:
                 tags.append(t)
     for d in dets:
-        if d["conf"] >= 0.4 and d["label"] not in tags:
+        if d["conf"] >= 0.6 and d["label"] not in tags:
             tags.append(d["label"])
     return tags[:10]
 
@@ -227,22 +228,33 @@ def _jpeg_b64(img: Image.Image) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
-def gemini(prompt: str, img: Image.Image | None = None, timeout: float = 40) -> dict:
+def gemini(prompt: str, img: Image.Image | None = None, timeout: float = 60) -> dict:
     parts = [{"text": prompt}]
     if img is not None:
         parts.insert(0, {"inline_data": {"mime_type": "image/jpeg", "data": _jpeg_b64(img)}})
-    r = httpx.post(
-        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
-        params={"key": GEMINI_KEY},
-        json={"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.2}},
-        timeout=timeout,
-    )
-    r.raise_for_status()
-    text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-    match = re.search(r"\{.*\}", text, re.S)
-    if not match:
-        raise ValueError(f"no JSON in model reply: {text[:120]}")
-    return json.loads(match.group(0))
+    last: Exception | None = None
+    for attempt in range(3):
+        try:
+            r = httpx.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent",
+                params={"key": GEMINI_KEY},
+                json={"contents": [{"parts": parts}], "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}},
+                timeout=timeout,
+            )
+            if r.status_code in (429, 500, 502, 503, 504):
+                raise httpx.HTTPStatusError(f"{r.status_code}", request=r.request, response=r)
+            r.raise_for_status()
+            cand = r.json()["candidates"][0]["content"]["parts"]
+            # Gemma 4 may emit "thought" parts first; the answer is the non-thought text
+            text = "".join(p.get("text", "") for p in cand if not p.get("thought"))
+            match = re.search(r"\{.*\}", text, re.S)
+            if not match:
+                raise ValueError(f"no JSON in model reply: {text[:80]!r}")
+            return json.loads(match.group(0))
+        except (httpx.HTTPError, ValueError, KeyError, IndexError) as e:
+            last = e
+            time.sleep(1.5 * (attempt + 1))
+    raise RuntimeError(f"gemini failed after retries: {last}")
 
 
 def _verify(out: dict, thumb: Image.Image, ranked: list, strong_person: bool):
