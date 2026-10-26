@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useState } from "react";
 import { CLUSTERS } from "@/lib/mock";
 import SidePanel from "@/components/galaxy/SidePanel";
+import RequireAuth from "@/components/RequireAuth";
 import type { ImageItem } from "@/lib/types";
 
 const GalaxyScene = dynamic(() => import("@/components/galaxy/GalaxyScene"), {
@@ -17,6 +18,14 @@ const GalaxyScene = dynamic(() => import("@/components/galaxy/GalaxyScene"), {
 type Toast = { id: string; text: string };
 
 export default function GalaxyPage() {
+  return (
+    <RequireAuth dark>
+      <Galaxy />
+    </RequireAuth>
+  );
+}
+
+function Galaxy() {
   const [query, setQuery] = useState("");
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<"3d" | "2d">("3d");

@@ -3,19 +3,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import Logo from "./Logo";
+import { supabase, useSession } from "@/lib/supabase";
 
 const DARK_ROUTES = ["/galaxy"];
 
 const links = [
   { href: "/galaxy", label: "Galaxy" },
-  { href: "/search", label: "Search" },
   { href: "/upload", label: "Upload" },
-  { href: "/profile", label: "Profile" },
 ];
 
 export default function Navbar() {
   const path = usePathname() || "/";
   const dark = DARK_ROUTES.some((r) => path.startsWith(r));
+  const session = useSession();
 
   useEffect(() => {
     document.body.dataset.theme = dark ? "dark" : "light";
@@ -50,10 +50,13 @@ export default function Navbar() {
             </Link>
           );
         })}
-        <Link href="/join" className={joinCls}>
-          <span className="w-1.5 h-1.5 rounded-full bg-dot-green animate-pulseDot" />
-          Join live
-        </Link>
+        {session ? (
+          <button onClick={() => supabase().auth.signOut()} className={`px-3 py-1 rounded-full transition ${dim}`}>
+            Sign out
+          </button>
+        ) : (
+          <Link href={`/login?next=${encodeURIComponent(path)}`} className={joinCls}>Log in</Link>
+        )}
       </div>
     </nav>
   );
