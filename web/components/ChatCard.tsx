@@ -3,6 +3,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { PLACEHOLDERS, SUGGESTIONS } from "@/lib/mock";
 import { api, IMG_COLS, supabase, type Img } from "@/lib/supabase";
+import { shrinkImage } from "@/lib/shrink";
 
 type Hit = { id: string; score: number; match: boolean };
 type Match = { image: Img; score: number };
@@ -71,7 +72,7 @@ export default function ChatCard() {
   async function byImage(f: File) {
     if (!(await signedIn("photo"))) return;
     const fd = new FormData();
-    fd.append("file", f);
+    fd.append("file", await shrinkImage(f));
     setMsgs((m) => [...m, { role: "user", text: `Photos like ${f.name}` }, { role: "ai", text: "Comparing…", matches: [] }]);
     try {
       const matches = await runSearch("/search/image", { method: "POST", body: fd });

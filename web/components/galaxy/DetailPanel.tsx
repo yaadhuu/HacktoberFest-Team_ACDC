@@ -13,6 +13,21 @@ export default function DetailPanel({ img, query, onClose, onSimilar, onChange, 
   onDelete: (id: string) => void;
 }) {
   const [why, setWhy] = useState<Why | null>(null);
+  const current = (img.tags ?? []).filter((t) => t.startsWith("named:")).map((t) => t.slice(6));
+  const [names, setNames] = useState(current.join(", "));
+  const [saving, setSaving] = useState<string | null>(null);
+  useEffect(() => setNames(current.join(", ")), [img.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function saveNames() {
+    setSaving("Saving…");
+    try {
+      const r = await api<{ image: Img }>("/people", { method: "POST", body: JSON.stringify({ image_id: img.id, names: names.split(",").map((n) => n.trim()).filter(Boolean) }) });
+      onChange(r.image);
+      setSaving("Saved. Ask the AI about them by name.");
+    } catch (e) {
+      setSaving(`Failed: ${(e as Error).message.slice(0, 80)}`);
+    }
+  }
 
   useEffect(() => {
     setWhy(null);
@@ -65,10 +80,17 @@ export default function DetailPanel({ img, query, onClose, onSimilar, onChange, 
       )}
 
       <div className="mt-3 text-sm font-medium">{img.caption}</div>
+      <div className="mt-3 flex gap-1.5">
+        <input value={names} onChange={(e) => setNames(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveNames()}
+          placeholder="Who's in this photo? e.g. Priya, Ravi"
+          className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-xs outline-none placeholder:text-snow/30" />
+        <button onClick={saveNames} className="rounded-full bg-snow text-night px-3 text-xs font-medium">Name</button>
+      </div>
+      {saving && <div className="mt-1 text-[10px] text-snow/50">{saving}</div>}
       <div className="mt-1 text-[11px] uppercase tracking-wider text-snow/50">{(img.categories ?? []).join(" · ")}</div>
 
       <div className="mt-2 flex gap-1 flex-wrap">
-        {(img.tags ?? []).map((t) => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-snow/70">{t}</span>)}
+        {(img.tags ?? []).filter((t) => !t.startsWith("person:") && !t.startsWith("named:")).slice(0, 40).map((t) => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-snow/70">{t}</span>)}
       </div>
 
       {(img.palette ?? []).length > 0 && (

@@ -3,6 +3,9 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, supabase } from "@/lib/supabase";
 
+// TODO: hardcoded public host for now (ngrok); swap for the real domain after deploy
+const INVITE_BASE = "https://dollop-amaretto-impolite.ngrok-free.dev";
+
 const qrSrc = (data: string) =>
   `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&bgcolor=ffffff&color=0e0e10&data=${encodeURIComponent(data)}`;
 
@@ -20,7 +23,7 @@ export default function LiveWidget() {
     setBusy(true);
     try {
       const { token } = await api<{ token: string }>("/invites", { method: "POST" });
-      setLink(`${window.location.origin}/join?g=${encodeURIComponent(token)}`);
+      setLink(`${INVITE_BASE}/${token}`);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {

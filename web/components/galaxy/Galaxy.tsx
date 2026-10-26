@@ -36,6 +36,7 @@ export default function Galaxy(p: GalaxyProps) {
   );
 }
 
+
 // ---------------------------------------------------------------- star field
 const vert = /* glsl */ `
 attribute float aSize; attribute float aBright; attribute float aHi;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import RequireAuth from "@/components/RequireAuth";
 import { api, apiUrl, type Img } from "@/lib/supabase";
+import { shrinkImage } from "@/lib/shrink";
 
 type Phase = "idle" | "preview" | "uploading" | "done";
 
@@ -59,7 +60,7 @@ function Join({ invite }: { invite: string | null }) {
     setPhase("uploading");
     try {
       const fd = new FormData();
-      fd.append("file", file!);
+      fd.append("file", await shrinkImage(file!));
       let r: { image: Img };
       if (invite) {
         fd.append("name", name);

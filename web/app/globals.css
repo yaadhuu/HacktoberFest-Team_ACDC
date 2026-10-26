@@ -59,3 +59,4 @@ body[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(255,255,255
 /* Hide scrollbar util */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+

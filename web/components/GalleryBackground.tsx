@@ -21,7 +21,7 @@ export default function GalleryBackground() {
       >
         {cols.map((col, i) => {
           const reverse = i % 2 === 1;
-          const dur = 60 + (i % 3) * 15;
+          const dur = 170 + (i % 3) * 45; // slow, calm drift
           return (
             <div key={i} className="flex-1 min-w-0">
               <div

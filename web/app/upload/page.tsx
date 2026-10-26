@@ -4,6 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { unzip } from "fflate";
 import RequireAuth from "@/components/RequireAuth";
 import { api, type Img } from "@/lib/supabase";
+import { shrinkImage } from "@/lib/shrink";
 
 const CONCURRENCY = 3;
 const MAX_RETRIES = 3;
@@ -71,7 +72,7 @@ function Uploader() {
 
   async function run(job: Job) {
     const fd = new FormData();
-    fd.append("file", job.file);
+    fd.append("file", await shrinkImage(job.file));
     try {
       const r = await api<{ status: "created" | "duplicate"; image: Img }>("/images", { method: "POST", body: fd });
       job.status = r.status === "duplicate" ? "duplicate" : "done";
