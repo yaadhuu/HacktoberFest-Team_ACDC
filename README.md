@@ -6,11 +6,45 @@
 
 **A visual AI explorer that groups photos by meaning, lets you search them in plain words, and shows the evidence behind every match.**
 
-![Next.js](https://img.shields.io/badge/Next.js_14-black?logo=nextdotjs) ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white) ![three.js](https://img.shields.io/badge/react--three--fiber-3D_galaxy-049ef4) ![Supabase](https://img.shields.io/badge/Supabase-Postgres_%2B_pgvector-3ecf8e?logo=supabase&logoColor=white) ![Gemma](https://img.shields.io/badge/Gemma_4-open--weight-4285f4) ![License](https://img.shields.io/badge/hackathon-MLH_Hacktoberfest_Hack_Day-ff6a00)
+<p>
+  <img alt="Next.js" src="https://img.shields.io/badge/Next.js-14-000000?logo=nextdotjs&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black">
+  <img alt="three.js" src="https://img.shields.io/badge/three.js-react--three--fiber-049EF4?logo=threedotjs&logoColor=white">
+  <img alt="Tailwind" src="https://img.shields.io/badge/Tailwind-3-06B6D4?logo=tailwindcss&logoColor=white">
+  <br>
+  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres%20%2B%20pgvector-3ECF8E?logo=supabase&logoColor=white">
+  <img alt="Gemma" src="https://img.shields.io/badge/Gemma_4-open--weight-4285F4?logo=google&logoColor=white">
+  <img alt="SigLIP" src="https://img.shields.io/badge/SigLIP-Apache--2.0-FF6F00">
+  <img alt="Cloudinary" src="https://img.shields.io/badge/Cloudinary-CDN-3448C5?logo=cloudinary&logoColor=white">
+  <img alt="Vercel" src="https://img.shields.io/badge/Vercel-ready-000000?logo=vercel&logoColor=white">
+  <br>
+  <img alt="Eval accuracy" src="https://img.shields.io/badge/eval_accuracy-92.8%25-brightgreen">
+  <img alt="Eval set" src="https://img.shields.io/badge/eval_set-69_images-blue">
+  <img alt="Secrets" src="https://img.shields.io/badge/secrets_committed-0-success">
+  <img alt="Status" src="https://img.shields.io/badge/status-hackathon_prototype-orange">
+  <img alt="Hackathon" src="https://img.shields.io/badge/MLH-Hacktoberfest_Hack_Day-ff6a00">
+</p>
 
-[For evaluators](#-for-evaluators-start-here) · [Demo script](#-2-minute-demo-script) · [Architecture](#-architecture) · [AI pipeline](#-the-ai-pipeline) · [Run it](#-run-it-locally) · [Models and licences](#-models-and-licences) · [Honest limits](#-honest-limits)
+<sub>`computer-vision` · `multimodal-ai` · `semantic-search` · `embeddings` · `pgvector` · `gemma` · `open-weight` · `three-js` · `nextjs` · `photo-search` · `visual-explorer` · `hackathon`</sub>
+
+[For evaluators](#-for-evaluators-start-here) · [Demo script](#-2-minute-demo-script) · [Architecture](#-architecture) · [AI pipeline](#-the-ai-pipeline) · [Run it](#-run-it-locally) · [Models and licences](#-models-and-licences) · [Honest limits](#honest-limits)
 
 </div>
+
+<details>
+<summary><b>📑 Table of contents</b></summary>
+
+1. [The problem](#the-problem)
+2. [What it does](#what-it-does) · [At a glance](#-at-a-glance)
+3. [For evaluators](#-for-evaluators-start-here) · [2-minute demo](#-2-minute-demo-script)
+4. [Architecture](#-architecture) · [The AI pipeline](#-the-ai-pipeline)
+5. [Features](#-features) · [Tech stack](#-tech-stack)
+6. [Run it locally](#-run-it-locally) · [Evaluation](#-evaluation)
+7. [Models and licences](#-models-and-licences) · [Repository layout](#-repository-layout)
+8. [Security](#-security-and-privacy) · [Honest limits](#honest-limits) · [FAQ](#-faq) · [Compliance](#-hackathon-compliance)
+
+</details>
 
 ---
 
@@ -32,6 +66,21 @@ Photo libraries are huge and unsearchable. Files are named `IMG_4821.jpg`, folde
 | **Private by default** | Each user has their own galaxy, enforced in the database (Row Level Security). |
 
 ---
+
+## 📌 At a glance
+
+| | |
+|:--|:--|
+| 🏷 **Index depth** | up to about **160 tags** per photo, plus a 80–150 word description, objects, colours, mood, clothing, brands and visible text |
+| 🧮 **Meaning vectors** | **768-dimensional** per photo, stored with `pgvector` |
+| 🎯 **Tagging accuracy** | **92.8%** on 69 hand-checked images (Python pipeline), and the "person labelled as food" bug is fixed |
+| 📤 **Bulk upload** | folders, thousands of files and `.zip`, 3 at a time with retry and duplicate skipping |
+| 👥 **Live participation** | scan a QR, add a photo, **no account needed** |
+| 🔐 **Privacy** | database-enforced per-user isolation (Row Level Security) |
+| 🧩 **Open-weight AI** | Gemma 4 for understanding; fully open SigLIP path in the Python pipeline |
+| 💸 **Runs on free tiers** | Vercel, Supabase, Cloudinary, Gemini API |
+
+<p align="right"><a href="#bliss">⬆ back to top</a></p>
 
 ## 🧭 For evaluators: start here
 
@@ -208,6 +257,25 @@ Your query is embedded the same way. A photo counts as a match only if a query w
 
 ---
 
+## 🛠 Tech stack
+
+<details open>
+<summary><b>What it is built with</b></summary>
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 14 (App Router), React 18, TypeScript (strict), Tailwind CSS |
+| **3D galaxy** | three.js through react-three-fiber and drei, custom GLSL shaders for the star field and Milky Way |
+| **Backend** | Next.js route handlers (Node runtime), `sharp`, `exifr`, `umap-js`, `fflate`, `qrcode` |
+| **AI** | Gemma 4 (vision and text), Gemini embeddings, optional SigLIP + YOLO11 + OpenCV |
+| **Data** | Supabase: Postgres, `pgvector`, Auth, Row Level Security, Realtime |
+| **Media** | Cloudinary (signed uploads, on-the-fly thumbnails) |
+| **Hosting** | Vercel (frontend and API), Supabase and Cloudinary free tiers |
+
+</details>
+
+<p align="right"><a href="#bliss">⬆ back to top</a></p>
+
 ## 🚀 Run it locally
 
 ### 0. Prerequisites
@@ -343,6 +411,8 @@ Other notable libraries: Next.js, React, three.js / react-three-fiber / drei, Ta
 - Guest uploads and the guest galaxy view are read-limited: no embeddings, no owner-only actions.
 - Inputs are validated (type, size ≤ 30 MB); the post-login redirect only accepts same-site paths.
 
+<a id="honest-limits"></a>
+
 ## ⚠️ Honest limits
 
 We would rather you hear these from us:
@@ -355,6 +425,52 @@ We would rather you hear these from us:
 - **Prototype pages:** `/search`, `/u/*` and `/profile` use sample data (see above).
 - **Not built (cut for time):** lasso and bulk actions, album editing, timeline view, minimap, 2D/3D toggle, duplicate-finder UI (duplicates are skipped at upload), colour/date filters, EXIF map.
 - Eval covers the Python pipeline only (see above).
+
+## ❓ FAQ
+
+<details>
+<summary><b>Is this really open-source AI?</b></summary>
+
+The image understanding is done by Gemma 4, which is open-weight. The default backend then turns Gemma's text into vectors using Google's hosted embedding API, which is **not** open-weight. A fully open-weight path (SigLIP + YOLO11) is included in `api/` and is what the evaluation script measures. See [Models and licences](#-models-and-licences).
+
+</details>
+
+<details>
+<summary><b>Why does search say "No photos match"?</b></summary>
+
+By design. A photo only counts as a match if a query word really appears in its index or it is genuinely close in meaning. Common words ("guy", "two", "playing") are down-weighted so they cannot pull in unrelated photos. Try more specific words.
+
+</details>
+
+<details>
+<summary><b>Why are some older photos hard to find?</b></summary>
+
+Photos uploaded with the first pipeline use a different vector format. `/api/reindex` upgrades them and the galaxy runs it on open, but it depends on the Gemini API being available.
+
+</details>
+
+<details>
+<summary><b>Can strangers see my photos?</b></summary>
+
+No. Every table is protected by Row Level Security. A shared-galaxy QR creates a separate account, so it exposes only that demo galaxy.
+
+</details>
+
+<details>
+<summary><b>The QR link shows a warning page the first time.</b></summary>
+
+That is the free ngrok tunnel's interstitial. Tap "Visit Site". A deployed domain removes it.
+
+</details>
+
+<details>
+<summary><b>Do I need a GPU?</b></summary>
+
+No. The default backend calls hosted models. The optional Python pipeline runs on CPU with about 2 GB of RAM.
+
+</details>
+
+<p align="right"><a href="#bliss">⬆ back to top</a></p>
 
 ## 🏁 Hackathon compliance
 

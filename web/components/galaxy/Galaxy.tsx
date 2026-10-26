@@ -170,7 +170,7 @@ function Stars(p: GalaxyProps & { spiral: boolean }) {
       if (scores) {
         const isMatch = matches?.has(img.id) ?? false;
         hi = isMatch ? 1 : 0;
-        if (mode === "highlight") { br = isMatch ? 1 : br * 0.12; sz = isMatch ? sz * 1.8 : sz; }
+        if (mode === "highlight") { br = isMatch ? 1 : br * 0.12; sz = isMatch ? sz * 1.35 : sz; }
         else { const s = scores.get(img.id) ?? 0; br = 0.15 + 0.85 * s; sz = sz * (0.7 + s); }
       }
       if (img.id === selectedId) { hi = 1; sz *= 2.2; br = 1; }
@@ -233,7 +233,7 @@ function Thumbs({ imgs, buf }: { imgs: Img[]; buf: React.MutableRefObject<Buffer
     for (let i = 0; i < imgs.length; i++) {
       const dx = p[i * 3] - camera.position.x, dy = p[i * 3 + 1] - camera.position.y, dz = p[i * 3 + 2] - camera.position.z;
       const d = dx * dx + dy * dy + dz * dz;
-      if (buf.current.bright[i] > 0.05) cands.push([d, i]);
+      if (buf.current.bright[i] > 0.25) cands.push([d, i]); // dimmed non-matches fall back to plain dots
     }
     cands.sort((a, b) => a[0] - b[0]);
     const next = cands.slice(0, MAX_THUMBS).map((c) => c[1]).sort((a, b) => a - b);

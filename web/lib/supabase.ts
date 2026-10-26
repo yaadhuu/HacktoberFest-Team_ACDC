@@ -25,14 +25,32 @@ export function useSession(): Session | null | undefined {
   return s;
 }
 
+/** A fresh access token: refreshes when the saved one is expired or about to expire. */
+async function freshToken(force = false): Promise<string> {
+  const auth = supabase().auth;
+  let { data } = await auth.getSession();
+  const soon = (data.session?.expires_at ?? 0) * 1000 < Date.now() + 60_000;
+  if (data.session && (force || soon)) {
+    const r = await auth.refreshSession();
+    data = { session: r.data.session };
+  }
+  if (!data.session) throw new Error("Your session expired. Please log in again.");
+  return data.session.access_token;
+}
+
 export async function api<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const { data } = await supabase().auth.getSession();
-  const token = data.session?.access_token;
-  if (!token) throw new Error("not signed in");
-  const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
-  const r = await fetch(`${apiUrl()}${path}`, { ...init, headers });
+  const call = async (token: string) => {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    if (init.body && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
+    return fetch(`${apiUrl()}${path}`, { ...init, headers });
+  };
+  let r = await call(await freshToken());
+  if (r.status === 401) r = await call(await freshToken(true)); // stale token: refresh once and retry
+  if (r.status === 401) {
+    await supabase().auth.signOut(); // really expired: drop it so the UI sends the user to log in
+    throw new Error("Your session expired. Please log in again.");
+  }
   if (!r.ok) throw new Error(`${r.status} ${(await r.text()).slice(0, 200)}`);
   return r.json() as Promise<T>;
 }

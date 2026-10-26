@@ -41,3 +41,6 @@ models/
 api/cache/
 api/eval_images/
 *.pt
+
+# generated launch-video workspace (contains copied photos)
+brag-output/

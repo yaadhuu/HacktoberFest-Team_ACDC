@@ -264,13 +264,25 @@ export async function rank(o: Owner, emb: number[], queryWords: string[], limit 
   const words = [...new Set(queryWords.flatMap((w) => contentWords(w)))];
   const bag = new Map((meta ?? []).map((r: any) => [r.id, new Set(tokens([r.caption ?? "", r.rationale ?? "", r.ocr ?? "", ...(r.tags ?? []), ...(r.categories ?? [])].join(" ")))]));
   const people = new Map((meta ?? []).map((r: any) => [r.id, new Set((r.tags ?? []).filter((t: string) => t.startsWith("person:")).map((t: string) => t.slice(7)))]));
+  // how common is each query word in THIS library? rare words ("violin") are evidence, common ones ("guy", "playing") are not
+  const N = Math.max(1, bag.size);
+  const df = new Map(words.map((w) => [w, [...bag.values()].filter((b) => b.has(w)).length]));
+  const weight = (w: string) => Math.log(1 + N / (1 + (df.get(w) ?? 0)));
+  const rare = words.filter((w) => (df.get(w) ?? 0) / N <= 0.12); // includes words nobody has (df 0)
+  const totalW = words.reduce((s, w) => s + weight(w), 0) || 1;
   const out = nn.map((n: any) => {
     const have = bag.get(n.id) ?? new Set<string>();
-    const hit = words.length ? words.filter((w) => have.has(w)).length / words.length : 0; // whole-word, stopword-free
+    const matched = words.filter((w) => have.has(w));
+    const hit = matched.reduce((s, w) => s + weight(w), 0) / totalW; // IDF-weighted, whole-word, stopword-free
     const named = words.some((w) => people.get(n.id)?.has(w));
+    // keyword evidence counts only if a specific word matched (or, with no specific words, most of the words did)
+    const keyword = rare.length ? matched.some((w) => rare.includes(w)) && hit >= 0.25 : hit >= 0.5;
     const simAbs = Math.min(1, Math.max(0, (n.similarity - SIM_FLOOR) / 0.3));
     const score = Math.min(1, (named ? 0.4 : 0) + 0.5 * hit + 0.5 * simAbs);
-    return { id: n.id, score: +score.toFixed(4), similarity: +n.similarity.toFixed(4), text_hit: +hit.toFixed(2), match: named || hit > 0 || n.similarity >= SIM_MATCH };
+    return { id: n.id, score: +score.toFixed(4), similarity: +n.similarity.toFixed(4), text_hit: +hit.toFixed(2), match: named || keyword || n.similarity >= SIM_MATCH };
   }).sort((a: any, b: any) => b.score - a.score);
+  // keep the result set tight: a match must also be reasonably close to the best one
+  const best = out.find((r: any) => r.match)?.score ?? 0;
+  out.forEach((r: any) => { if (r.match && r.score < best * 0.55) r.match = false; });
   return out;
 }
