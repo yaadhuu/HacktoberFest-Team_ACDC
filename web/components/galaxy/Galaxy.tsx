@@ -23,6 +23,16 @@ export type GalaxyProps = {
 };
 
 export default function Galaxy(p: GalaxyProps) {
+  // intro layout: stars start in a centre-focused spiral, then unwind into the real layout
+  const [spiral, setSpiral] = useState(false);
+  useEffect(() => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reduced) return; // intro plays on every open
+    setSpiral(true);
+    const t = setTimeout(() => setSpiral(false), 6500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [p.introKey]);
   return (
     <Canvas camera={{ position: [0, 8, 70], fov: 50, near: 0.1, far: 400 }} dpr={[1, 1.75]} gl={{ antialias: true }}>
       <color attach="background" args={["#05060a"]} />
@@ -30,10 +40,22 @@ export default function Galaxy(p: GalaxyProps) {
       <Starfield radius={140} depth={60} count={7000} factor={4} saturation={0} fade speed={0.6} />
       <Dust />
       <Meteors imgs={p.imgs} onSelect={p.onSelect} />
-      <Stars {...p} />
+      <Stars {...p} spiral={spiral} />
       <CameraRig {...p} />
     </Canvas>
   );
+}
+
+/** Spiral-galaxy layout: three arms winding out from a bright core. */
+function spiralTargets(n: number, out: Float32Array) {
+  for (let i = 0; i < n; i++) {
+    const t = i / Math.max(1, n - 1), arm = i % 3;
+    const r = 1.5 + Math.sqrt(t) * 15;
+    const a = r * 0.55 + (arm * Math.PI * 2) / 3 + Math.sin(i * 12.9898) * 0.12;
+    out[i * 3] = Math.cos(a) * r;
+    out[i * 3 + 1] = Math.sin(i * 78.233) * 0.35 * (1 - t * 0.6);
+    out[i * 3 + 2] = Math.sin(a) * r;
+  }
 }
 
 
@@ -83,8 +105,8 @@ function reorderTargets(imgs: Img[], scores: Map<string, number>, out: Float32Ar
   });
 }
 
-function Stars(p: GalaxyProps) {
-  const { imgs, clusters, scores, matches, mode, filter, selectedId, arriving, onSelect } = p;
+function Stars(p: GalaxyProps & { spiral: boolean }) {
+  const { imgs, clusters, scores, matches, mode, filter, selectedId, arriving, onSelect, spiral } = p;
   const { raycaster, gl } = useThree();
   const n = imgs.length;
   const buf = useRef<Buffers | null>(null);
@@ -156,7 +178,8 @@ function Stars(p: GalaxyProps) {
       b.brightT[i] = br; b.sizeT[i] = sz; b.hiT[i] = hi;
     });
     if (scores && mode === "reorder") reorderTargets(imgs, scores, b.tgt);
-  }, [imgs, clusters, scores, matches, mode, filter, selectedId, arriving]);
+    else if (spiral) spiralTargets(imgs.length, b.tgt);
+  }, [imgs, clusters, scores, matches, mode, filter, selectedId, arriving, spiral]);
 
   useFrame((_, dt) => {
     const b = buf.current;
@@ -346,15 +369,13 @@ function CameraRig({ clusters, imgs, scores, matches, mode, introKey, onIntroEnd
   useEffect(() => {
     if (!ready) return;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const seen = sessionStorage.getItem("bliss-intro-seen") === "1";
     const end = () => { intro.current = null; if (controls.current) controls.current.enabled = true; onIntroEnd(); };
-    if (reduced || (seen && introKey === 0)) {
+    if (reduced) {
       camera.position.set(0, 5, 24);
       controls.current?.target.set(0, 0, 0);
       end();
       return;
     }
-    sessionStorage.setItem("bliss-intro-seen", "1");
     camera.position.set(0, 8, 70);
     intro.current = { shots: buildIntro(clusters), i: 0, t: 0, from: { pos: camera.position.clone(), look: new THREE.Vector3() } };
     if (controls.current) controls.current.enabled = false;

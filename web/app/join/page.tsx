@@ -178,7 +178,7 @@ function Join({ invite }: { invite: string | null }) {
                   Add another
                 </button>
                 {invite ? (
-                  <span className="btn-dark flex-1 justify-center">Watch the big screen ✦</span>
+                  <Link href={`/galaxy?g=${encodeURIComponent(invite)}`} className="btn-dark flex-1 justify-center">See the shared galaxy ✦</Link>
                 ) : (
                   <Link href="/galaxy" className="btn-dark flex-1 justify-center">See it on screen</Link>
                 )}
@@ -186,6 +186,13 @@ function Join({ invite }: { invite: string | null }) {
             </div>
           )}
         </div>
+
+        {invite && inviteOk && (
+          <Link href={`/galaxy?g=${encodeURIComponent(invite)}`}
+            className="mt-4 flex items-center justify-center gap-2 rounded-full border border-ink-line bg-white/70 px-5 py-3 text-sm font-medium hover:bg-white transition">
+            ✦ Open the shared galaxy
+          </Link>
+        )}
 
         <div className="mt-5 text-xs text-ink-faint text-center">
           No account needed. Open-weight models. Your photo stays with the demo.

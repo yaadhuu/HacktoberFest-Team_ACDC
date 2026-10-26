@@ -8,5 +8,5 @@ export const POST = (req: Request) => handle(async () => {
   if (!q) throw new HttpError(400, "empty query");
   const emb = await embed(q);
   await o.sb.from("searches").insert({ query: q.slice(0, 200) });
-  return { query: q, results: await rank(o, emb, q.toLowerCase().split(/\s+/).filter((w) => w.length > 2)) };
+  return { query: q, results: await rank(o, emb, q.split(/\s+/)) };
 });

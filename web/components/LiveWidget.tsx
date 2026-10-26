@@ -1,6 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, supabase } from "@/lib/supabase";
 
 // TODO: hardcoded public host for now (ngrok); swap for the real domain after deploy
@@ -15,6 +15,10 @@ export default function LiveWidget() {
   const [link, setLink] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+
+  // keep the same shared galaxy across reloads (stored per account); the QR stays blurred until tapped
+  useEffect(() => { try { setToken(localStorage.getItem("bliss:shared-token")); } catch {} }, []);
 
   async function reveal() {
     if (link || busy) return;
@@ -22,13 +26,27 @@ export default function LiveWidget() {
     if (!data.session) return router.push(`/login?next=${encodeURIComponent("/")}`);
     setBusy(true);
     try {
-      const { token } = await api<{ token: string }>("/invites", { method: "POST" });
-      setLink(`${INVITE_BASE}/${token}`);
+      const t = token ?? (await api<{ token: string }>("/invites", { method: "POST" })).token;
+      try { localStorage.setItem("bliss:shared-token", t); } catch {}
+      setToken(t);
+      setLink(`${INVITE_BASE}/${t}`);
     } catch (e) {
       setMsg((e as Error).message);
     } finally {
       setBusy(false);
     }
+  }
+
+  async function newGalaxy() {
+    if (!confirm("Start a brand-new empty shared galaxy? The current QR will still work, but this page will switch to the new one.")) return;
+    try { localStorage.removeItem("bliss:shared-token"); } catch {}
+    setToken(null); setLink(null);
+    setBusy(true);
+    try {
+      const { token: t } = await api<{ token: string }>("/invites", { method: "POST" });
+      try { localStorage.setItem("bliss:shared-token", t); } catch {}
+      setToken(t); setLink(`${INVITE_BASE}/${t}`);
+    } catch (e) { setMsg((e as Error).message); } finally { setBusy(false); }
   }
 
   async function share() {
@@ -58,7 +76,11 @@ export default function LiveWidget() {
         <div className="text-[11px] uppercase tracking-wider text-ink-faint">{link ? "Scan to join" : "Shared galaxy"}</div>
         <div className="text-sm font-medium mt-0.5 text-ink">{link ? "Friends add photos here" : "Invite friends to add photos"}</div>
         {link ? (
-          <button onClick={share} className="mt-1 text-xs text-ink underline underline-offset-2">Share link</button>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+            <a href={`/galaxy?g=${encodeURIComponent(token ?? "")}`} className="text-ink underline underline-offset-2">Open galaxy</a>
+            <button onClick={share} className="text-ink underline underline-offset-2">Share</button>
+            <button onClick={newGalaxy} className="text-ink-dim underline underline-offset-2">New</button>
+          </div>
         ) : (
           <div className="mt-1 text-xs text-ink-dim">Tap the QR to create yours</div>
         )}

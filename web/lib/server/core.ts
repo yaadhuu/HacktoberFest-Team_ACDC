@@ -146,7 +146,9 @@ type Analysis = { caption: string; description: string; categories: string[]; pr
 
 const list = (v: any, n: number) => (Array.isArray(v) ? v : []).map((t: any) => String(t).toLowerCase().trim()).filter(Boolean).slice(0, n);
 
-async function analyze(thumb: Buffer): Promise<Analysis> {
+export const INDEX_TAG = "idx:v2"; // marks rows indexed + embedded by the Gemma/Gemini pipeline
+
+export async function analyze(thumb: Buffer): Promise<Analysis> {
   const allowed = TAXONOMY.map(([s, l]) => `${s} (${l})`).join(", ");
   const v = await gemma(
     "You build an exhaustive search index for ONE photo in a personal library. Be extremely thorough and specific; the more distinct, accurate details, the better. Answer with ONLY a JSON object. " +
@@ -197,7 +199,7 @@ export async function ingest(raw: Buffer, o: Owner, uploader: string | null = nu
   const row = {
     id: `${o.id.slice(0, 8)}_${pre.sha256.slice(0, 20)}`, user_id: o.id, uploader_name: uploader,
     url: up.secure_url, thumb: `https://res.cloudinary.com/${CLOUD()}/image/upload/c_fill,w_400,h_500,q_auto,f_auto/${pid}`, cloudinary_public_id: pid,
-    caption: a.caption, tags: a.tags, ocr: a.ocr, embedding: vec(emb), x, y, z, cluster_id: cluster,
+    caption: a.caption, tags: [...a.tags, INDEX_TAG], ocr: a.ocr, embedding: vec(emb), x, y, z, cluster_id: cluster,
     sha256: pre.sha256, phash: pre.phash, width: pre.width, height: pre.height, taken_at: pre.taken_at,
     gps_lat: pre.gps_lat, gps_lng: pre.gps_lng, camera: pre.camera, palette: pre.palette,
     categories: a.categories, primary_category: a.primary, category_scores: {}, detections: a.objects.slice(0, 30).map((label) => ({ label, conf: 1, box: [0, 0, 0, 0] })),
@@ -208,9 +210,28 @@ export async function ingest(raw: Buffer, o: Owner, uploader: string | null = nu
   return { status: "created", image: pub(data ?? row) };
 }
 
+/** A shared galaxy is its own (otherwise empty) account, so friends' photos never touch the creator's galaxy. */
+export async function createSharedGalaxy(): Promise<string> {
+  const sb = serviceOwner("x").sb;
+  const rnd = crypto.randomBytes(6).toString("hex");
+  const { data, error } = await sb.auth.admin.createUser({ email: `shared-${rnd}@bliss-demo.app`, password: crypto.randomBytes(24).toString("hex"), email_confirm: true });
+  if (error || !data.user) throw new Error(`could not create shared galaxy: ${error?.message}`);
+  return data.user.id;
+}
+
+async function nearest(o: Owner, emb: number[]): Promise<string[]> {
+  if (!o.service) {
+    const { data: nn } = await o.sb.rpc("match_images", { query_embedding: vec(emb), match_count: 6 });
+    return (nn ?? []).map((n: any) => n.id);
+  }
+  // service role has no auth.uid(), so rank this galaxy's photos by cosine in JS (shared galaxies are small)
+  const { data } = await o.sb.from("images").select("id,embedding").eq("user_id", o.id).not("embedding", "is", null).limit(400);
+  return (data ?? []).map((r: any) => { const v: number[] = JSON.parse(r.embedding); return { id: r.id, d: v.reduce((s, x, i) => s + x * emb[i], 0) }; })
+    .sort((a, b) => b.d - a.d).slice(0, 6).map((r) => r.id);
+}
+
 async function place(o: Owner, emb: number[]) {
-  const { data: nn } = await o.sb.rpc("match_images", { query_embedding: vec(emb), match_count: 6 });
-  const ids = (nn ?? []).map((n: any) => n.id);
+  const ids = await nearest(o, emb);
   const { data: pts } = ids.length ? await o.sb.from("images").select("x,y,z,cluster_id").in("id", ids) : { data: [] };
   const j = (s: number) => (Math.random() * 2 - 1) * s;
   if (!pts?.length) return { x: j(3), y: j(3), z: j(3), cluster: null as string | null };
@@ -225,23 +246,31 @@ const PUB = "id,url,thumb,cloudinary_public_id,caption,tags,ocr,x,y,z,cluster_id
 export const pub = (r: any) => Object.fromEntries(PUB.map((k) => [k, r[k] ?? null]));
 
 // ------------------------------------------------------------------ search
-export async function rank(o: Owner, emb: number[], words: string[], limit = 400) {
+const STOP = new Set("a an and or the of in on at to for from with without by as is are was were be this that these those it its photo photos picture pictures pic pics image images show shows me my find some any all about near like where who what which when having has have had there their them they".split(" "));
+const stem = (w: string) => (w.length > 3 && w.endsWith("ies") ? w.slice(0, -3) + "y" : w.length > 3 && w.endsWith("es") && /(ch|sh|x|ss|s)es$/.test(w) ? w.slice(0, -2) : w.length > 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w);
+const tokens = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(stem);
+export const contentWords = (q: string) => [...new Set(tokens(q).filter((w) => w.length > 1 && !STOP.has(w)))];
+
+/** Absolute (not min-max) relevance: a photo only matches if a query word is really in its index or it is genuinely close in meaning. */
+const SIM_MATCH = Number(process.env.SEARCH_SIM_MATCH ?? 0.56);
+const SIM_FLOOR = 0.4;
+
+export async function rank(o: Owner, emb: number[], queryWords: string[], limit = 400) {
   const [{ data: nn }, { data: meta }] = await Promise.all([
     o.sb.rpc("match_images", { query_embedding: vec(emb), match_count: limit }),
     o.sb.from("images").select("id,caption,tags,categories,ocr,rationale"),
   ]);
   if (!nn?.length) return [];
-  const text = new Map((meta ?? []).map((r: any) => [r.id, [r.caption ?? "", r.rationale ?? "", r.ocr ?? "", ...(r.tags ?? []), ...(r.categories ?? [])].join(" ").toLowerCase()]));
-  const sims: number[] = nn.map((n: any) => n.similarity);
-  const lo = Math.min(...sims), hi = Math.max(...sims);
+  const words = [...new Set(queryWords.flatMap((w) => contentWords(w)))];
+  const bag = new Map((meta ?? []).map((r: any) => [r.id, new Set(tokens([r.caption ?? "", r.rationale ?? "", r.ocr ?? "", ...(r.tags ?? []), ...(r.categories ?? [])].join(" ")))]));
+  const people = new Map((meta ?? []).map((r: any) => [r.id, new Set((r.tags ?? []).filter((t: string) => t.startsWith("person:")).map((t: string) => t.slice(7)))]));
   const out = nn.map((n: any) => {
-    const t = text.get(n.id) ?? "";
-    const hit = words.length ? words.filter((w) => t.includes(w)).length / words.length : 0;
-    const named = words.some((w) => t.includes(`person:${w}`));
-    const score = Math.min(1, (named ? 0.4 : 0) + 0.7 * (hi > lo ? (n.similarity - lo) / (hi - lo) : 1) + 0.3 * hit);
-    return { id: n.id, score: +score.toFixed(4), similarity: +n.similarity.toFixed(4), text_hit: +hit.toFixed(2), match: false };
+    const have = bag.get(n.id) ?? new Set<string>();
+    const hit = words.length ? words.filter((w) => have.has(w)).length / words.length : 0; // whole-word, stopword-free
+    const named = words.some((w) => people.get(n.id)?.has(w));
+    const simAbs = Math.min(1, Math.max(0, (n.similarity - SIM_FLOOR) / 0.3));
+    const score = Math.min(1, (named ? 0.4 : 0) + 0.5 * hit + 0.5 * simAbs);
+    return { id: n.id, score: +score.toFixed(4), similarity: +n.similarity.toFixed(4), text_hit: +hit.toFixed(2), match: named || hit > 0 || n.similarity >= SIM_MATCH };
   }).sort((a: any, b: any) => b.score - a.score);
-  const best = out[0].score;
-  out.forEach((r: any) => (r.match = r.score >= Math.max(0.55, best * 0.8)));
   return out;
 }

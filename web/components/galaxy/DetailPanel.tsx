@@ -4,7 +4,8 @@ import { api, supabase, type Img } from "@/lib/supabase";
 
 type Why = { reason: string; evidence?: string[]; box: [number, number, number, number] | null; by?: string };
 
-export default function DetailPanel({ img, query, onClose, onSimilar, onChange, onDelete }: {
+export default function DetailPanel({ img, query, onClose, onSimilar, onChange, onDelete, readOnly = false }: {
+  readOnly?: boolean;
   img: Img;
   query: string | null;
   onClose: () => void;
@@ -80,17 +81,17 @@ export default function DetailPanel({ img, query, onClose, onSimilar, onChange, 
       )}
 
       <div className="mt-3 text-sm font-medium">{img.caption}</div>
-      <div className="mt-3 flex gap-1.5">
+      {!readOnly && <div className="mt-3 flex gap-1.5">
         <input value={names} onChange={(e) => setNames(e.target.value)} onKeyDown={(e) => e.key === "Enter" && saveNames()}
           placeholder="Who's in this photo? e.g. Priya, Ravi"
           className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded-full px-3 py-1.5 text-xs outline-none placeholder:text-snow/30" />
         <button onClick={saveNames} className="rounded-full bg-snow text-night px-3 text-xs font-medium">Name</button>
-      </div>
+      </div>}
       {saving && <div className="mt-1 text-[10px] text-snow/50">{saving}</div>}
       <div className="mt-1 text-[11px] uppercase tracking-wider text-snow/50">{(img.categories ?? []).join(" · ")}</div>
 
       <div className="mt-2 flex gap-1 flex-wrap">
-        {(img.tags ?? []).filter((t) => !t.startsWith("person:") && !t.startsWith("named:")).slice(0, 40).map((t) => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-snow/70">{t}</span>)}
+        {(img.tags ?? []).filter((t) => !t.startsWith("person:") && !t.startsWith("named:") && !t.startsWith("idx:")).slice(0, 40).map((t) => <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/5 border border-white/10 text-snow/70">{t}</span>)}
       </div>
 
       {(img.palette ?? []).length > 0 && (
@@ -115,12 +116,12 @@ export default function DetailPanel({ img, query, onClose, onSimilar, onChange, 
       {img.ocr && <div className="mt-2 text-[11px] font-mono bg-black/30 rounded p-2 text-snow/70">{img.ocr}</div>}
       {exif.length > 0 && <div className="mt-3 text-[11px] text-snow/50 space-y-0.5">{exif.map((e) => <div key={e}>{e}</div>)}</div>}
 
-      <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+      {!readOnly && <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
         <button onClick={() => onSimilar(img)} className="rounded-full bg-snow text-night py-2 font-medium">Similar</button>
         <button onClick={toggleFav} className="rounded-full border border-white/15 py-2">{img.favorite ? "★ Saved" : "☆ Favorite"}</button>
         <button onClick={remove} className="rounded-full border border-white/15 py-2 text-snow/60">Delete</button>
-      </div>
-      <a href={img.url} target="_blank" rel="noreferrer" className="mt-2 block text-center text-[11px] text-snow/40 hover:text-snow">Download original</a>
+      </div>}
+      {!readOnly && <a href={img.url} target="_blank" rel="noreferrer" className="mt-2 block text-center text-[11px] text-snow/40 hover:text-snow">Download original</a>}
     </aside>
   );
 }

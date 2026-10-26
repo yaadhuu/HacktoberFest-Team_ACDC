@@ -79,7 +79,12 @@ export async function layoutGalaxy(o: Owner, gemma: (p: string) => Promise<any>)
   const { error: ce } = await o.sb.from("user_clusters").insert(clusters);
   if (ce) throw new Error(ce.message);
   const payload = rows!.map((r: any, i: number) => ({ id: r.id, x: out[i][0], y: out[i][1], z: out[i][2], cluster_id: `${pre}_c${lab[i]}` }));
-  const { error: ue } = await o.sb.rpc("update_layout", { payload });
-  if (ue) throw new Error(ue.message);
+  if (o.service) { // service role has no auth.uid(), so update_layout (owner-checked) can't be used
+    for (let i = 0; i < payload.length; i += 20)
+      await Promise.all(payload.slice(i, i + 20).map((p) => o.sb.from("images").update({ x: p.x, y: p.y, z: p.z, cluster_id: p.cluster_id }).eq("id", p.id)));
+  } else {
+    const { error: ue } = await o.sb.rpc("update_layout", { payload });
+    if (ue) throw new Error(ue.message);
+  }
   return { clusters: clusters.length, images: n };
 }

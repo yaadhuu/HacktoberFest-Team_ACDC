@@ -198,7 +198,7 @@ function ResultCard({ match, query }: { match: Match; query: string }) {
       <div className="p-2.5">
         <div className="text-xs text-ink line-clamp-3 min-h-[3em]">{why ? why.reason : "Reading the evidence…"}</div>
         <div className="mt-1.5 flex gap-1 flex-wrap">
-          {(img.tags ?? []).slice(0, 3).map((t) => (
+          {(img.tags ?? []).filter((t) => !t.includes(":")).slice(0, 3).map((t) => (
             <span key={t} className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/5 text-ink-dim">{t}</span>
           ))}
         </div>
